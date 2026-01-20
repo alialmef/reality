@@ -11,6 +11,11 @@ from memory.conversation_store import (
     get_conversation_store,
     get_conversation_context,
 )
+from memory.consolidation import (
+    MemoryConsolidator,
+    get_consolidator,
+    get_understanding_context,
+)
 
 __all__ = [
     "UserProfile",
@@ -20,4 +25,7 @@ __all__ = [
     "ConversationStore",
     "get_conversation_store",
     "get_conversation_context",
+    "MemoryConsolidator",
+    "get_consolidator",
+    "get_understanding_context",
 ]

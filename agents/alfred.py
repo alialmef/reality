@@ -11,6 +11,7 @@ from config import config
 from personality.backstory import get_backstory_context
 from memory.user_profile import get_profile_context, get_knowledge_gap_context
 from memory.conversation_store import get_conversation_store, get_conversation_context
+from memory.consolidation import get_consolidator, get_understanding_context
 
 
 ALFRED_CONVERSATION_PROMPT = """
@@ -103,6 +104,16 @@ KNOWLEDGE_GAP_SECTION = """
 """
 
 
+UNDERSTANDING_SECTION = """
+<your_understanding>
+This is your synthesized understanding of who they are, built from all your observations
+and conversations. Use this to inform your tone and approach.
+
+{understanding}
+</your_understanding>
+"""
+
+
 class AlfredAgent:
     """
     Alfred conversational agent.
@@ -155,6 +166,16 @@ class AlfredAgent:
             profile = get_profile_context()
             if profile:
                 system_prompt += USER_PROFILE_SECTION.format(profile=profile)
+
+            # Add synthesized understanding (and maybe run consolidation)
+            try:
+                consolidator = get_consolidator()
+                consolidator.maybe_consolidate()  # Runs if needed
+                understanding = get_understanding_context()
+                if understanding:
+                    system_prompt += UNDERSTANDING_SECTION.format(understanding=understanding)
+            except Exception as e:
+                print(f"[Alfred] Warning: couldn't get understanding: {e}")
 
             # Add past conversation summaries
             history = get_conversation_context()
