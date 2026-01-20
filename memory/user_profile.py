@@ -6,9 +6,12 @@ Implements forgetting curve and reinforcement for natural memory.
 
 import json
 import uuid
+import anthropic
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict
+
+from config import config
 
 
 # Memory constants
@@ -90,6 +93,57 @@ class UserProfile:
                 return existing
         return None
 
+    def _check_contradictions(self, new_fact: str) -> List[Dict]:
+        """
+        Use Claude to check if a new fact contradicts existing facts.
+        Returns list of contradicting facts.
+        """
+        active_facts = self.get_facts(min_confidence=FADE_THRESHOLD)
+        if not active_facts:
+            return []
+
+        # Build list of existing facts for comparison
+        existing_facts_str = "\n".join(
+            f"- {f['fact']}" for f in active_facts[:10]  # Limit to top 10
+        )
+
+        try:
+            client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+            response = client.messages.create(
+                model="claude-3-5-haiku-20241022",  # Fast and cheap
+                max_tokens=200,
+                temperature=0,
+                messages=[{
+                    "role": "user",
+                    "content": f"""Does this new fact contradict any of the existing facts?
+
+New fact: "{new_fact}"
+
+Existing facts:
+{existing_facts_str}
+
+If there's a contradiction, respond with ONLY the contradicting fact text (exactly as written above).
+If no contradiction, respond with "NONE".
+Only identify clear, direct contradictions - not just differences or updates."""
+                }]
+            )
+
+            result = response.content[0].text.strip()
+            if result == "NONE":
+                return []
+
+            # Find the matching fact
+            contradictions = []
+            for fact in active_facts:
+                if fact["fact"] in result or result in fact["fact"]:
+                    contradictions.append(fact)
+
+            return contradictions
+
+        except Exception as e:
+            print(f"[UserProfile] Contradiction check error: {e}")
+            return []
+
     @property
     def name(self) -> str:
         """How Alfred addresses the user."""
@@ -98,6 +152,7 @@ class UserProfile:
     def add_fact(self, fact: str, confidence: float = 0.7, source: str = "conversation"):
         """
         Add a learned fact about the user, or reinforce if already known.
+        Checks for contradictions with existing facts.
 
         Args:
             fact: The fact learned (e.g., "Works in technology")
@@ -111,9 +166,23 @@ class UserProfile:
             self._reinforce_fact(existing, source)
             return
 
+        # Check for contradictions
+        contradictions = self._check_contradictions(fact)
+        contradiction_ids = []
+
+        if contradictions:
+            for c in contradictions:
+                print(f"[UserProfile] Contradiction detected: '{fact}' vs '{c['fact']}'")
+                contradiction_ids.append(c.get("id", "unknown"))
+
+                # Mark both facts as having contradictions
+                if "contradicts" not in c:
+                    c["contradicts"] = []
+
         # New fact
+        new_fact_id = f"fact_{uuid.uuid4().hex[:8]}"
         self._data["learned_facts"].append({
-            "id": f"fact_{uuid.uuid4().hex[:8]}",
+            "id": new_fact_id,
             "fact": fact,
             "confidence": min(confidence, MAX_CONFIDENCE),
             "source": source,
@@ -121,9 +190,21 @@ class UserProfile:
             "last_reinforced": datetime.now().isoformat(),
             "reinforcement_count": 0,
             "status": "active",
+            "contradicts": contradiction_ids,
         })
+
+        # Update contradicting facts to reference this new one
+        for c in contradictions:
+            if "contradicts" not in c:
+                c["contradicts"] = []
+            c["contradicts"].append(new_fact_id)
+
         self._save()
-        print(f"[UserProfile] Learned: {fact}")
+
+        if contradictions:
+            print(f"[UserProfile] Learned (with contradictions): {fact}")
+        else:
+            print(f"[UserProfile] Learned: {fact}")
 
     def _reinforce_fact(self, fact: Dict, source: str = "conversation"):
         """
@@ -220,6 +301,41 @@ class UserProfile:
 
         return pruned
 
+    def resolve_contradiction(self, keep_fact_id: str, remove_fact_id: str):
+        """
+        Resolve a contradiction by keeping one fact and removing another.
+        Called when user clarifies which fact is correct.
+        """
+        keep_fact = None
+        remove_fact = None
+
+        for fact in self._data["learned_facts"]:
+            if fact.get("id") == keep_fact_id:
+                keep_fact = fact
+            elif fact.get("id") == remove_fact_id:
+                remove_fact = fact
+
+        if keep_fact and remove_fact:
+            # Remove the incorrect fact
+            self._data["learned_facts"] = [
+                f for f in self._data["learned_facts"]
+                if f.get("id") != remove_fact_id
+            ]
+
+            # Clear contradiction reference from kept fact
+            if "contradicts" in keep_fact:
+                keep_fact["contradicts"] = [
+                    cid for cid in keep_fact["contradicts"]
+                    if cid != remove_fact_id
+                ]
+
+            # Boost confidence of kept fact (user confirmed it)
+            keep_fact["confidence"] = min(keep_fact["confidence"] + 0.2, MAX_CONFIDENCE)
+            keep_fact["last_reinforced"] = datetime.now().isoformat()
+
+            self._save()
+            print(f"[UserProfile] Resolved: kept '{keep_fact['fact']}', removed '{remove_fact['fact']}'")
+
     def get_context(self) -> Optional[str]:
         """
         Format profile as context for prompts.
@@ -234,8 +350,17 @@ class UserProfile:
         # Active facts (above fade threshold)
         facts = self.get_facts(min_confidence=FADE_THRESHOLD)
         if facts:
-            fact_strs = [f["fact"] for f in facts[:5]]  # Top 5 by confidence
-            lines.append(f"What you know: {'; '.join(fact_strs)}")
+            # Separate clean facts from conflicted ones
+            clean_facts = [f for f in facts if not f.get("contradicts")]
+            conflicted_facts = [f for f in facts if f.get("contradicts")]
+
+            if clean_facts:
+                fact_strs = [f["fact"] for f in clean_facts[:5]]
+                lines.append(f"What you know: {'; '.join(fact_strs)}")
+
+            if conflicted_facts:
+                conflict_strs = [f["fact"] for f in conflicted_facts[:3]]
+                lines.append(f"Uncertain (conflicting info): {'; '.join(conflict_strs)}")
 
         # Preferences
         if self._data["preferences"]:
