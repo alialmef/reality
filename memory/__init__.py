@@ -1,4 +1,5 @@
-# Memory module - for future pattern learning
-# Will store arrival patterns, greeting history, preferences
+# Memory module - stores what Alfred learns about the user
 
-__all__ = []
+from memory.user_profile import UserProfile, get_user_profile, get_profile_context
+
+__all__ = ["UserProfile", "get_user_profile", "get_profile_context"]

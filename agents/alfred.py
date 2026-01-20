@@ -8,6 +8,7 @@ from typing import Optional, List, Dict, Callable
 
 from config import config
 from personality.backstory import get_backstory_context
+from memory.user_profile import get_profile_context
 
 
 ALFRED_CONVERSATION_PROMPT = """
@@ -73,6 +74,16 @@ but don't force it—only bring it up when relevant.
 """
 
 
+USER_PROFILE_SECTION = """
+<what_you_know_about_them>
+You've learned these things about the person you serve. Use this knowledge naturally—
+don't announce that you "remember" things, just act on what you know.
+
+{profile}
+</what_you_know_about_them>
+"""
+
+
 class AlfredAgent:
     """
     Alfred conversational agent.
@@ -115,6 +126,11 @@ class AlfredAgent:
             backstory = get_backstory_context()
             if backstory:
                 system_prompt += BACKSTORY_SECTION.format(backstory=backstory)
+
+            # Add user profile if we've learned anything
+            profile = get_profile_context()
+            if profile:
+                system_prompt += USER_PROFILE_SECTION.format(profile=profile)
 
             # Add home context if available
             if self.home_context_provider:
