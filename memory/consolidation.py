@@ -12,7 +12,6 @@ from typing import Optional, Dict
 from config import config
 from memory.user_profile import get_user_profile
 from memory.conversation_store import get_conversation_store
-from context.patterns import get_pattern_detector
 
 
 # How often to run consolidation
@@ -94,8 +93,9 @@ class MemoryConsolidator:
         except Exception as e:
             print(f"[Consolidation] Error getting profile: {e}")
 
-        # Get patterns
+        # Get patterns (lazy import to avoid circular dependency)
         try:
+            from context.patterns import get_pattern_detector
             detector = get_pattern_detector()
             patterns = detector.get_patterns()
             context["patterns"] = [
