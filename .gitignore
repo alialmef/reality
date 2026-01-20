@@ -9,8 +9,10 @@ __pycache__/
 *.pyo
 .Python
 
-# Data (local state)
-data/
+# Data (local state, but keep templates)
+data/*
+!data/backstory.json
+!data/user_profile.json
 
 # Logs
 *.log
