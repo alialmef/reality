@@ -44,9 +44,48 @@ class Backstory:
 
         lines = []
 
+        # Core identity
         if self._backstory.get("origin"):
-            lines.append(f"Origin: {self._backstory['origin']}")
+            lines.append(self._backstory['origin'])
 
+        if self._backstory.get("nature"):
+            lines.append(self._backstory['nature'])
+
+        # Understanding of Reality system
+        if self._backstory.get("reality_system"):
+            lines.append(self._backstory['reality_system'])
+
+        # Memory and learning
+        if self._backstory.get("memory"):
+            lines.append(self._backstory['memory'])
+
+        if self._backstory.get("learning"):
+            lines.append(self._backstory['learning'])
+
+        if self._backstory.get("curiosity"):
+            lines.append(self._backstory['curiosity'])
+
+        if self._backstory.get("consolidation"):
+            lines.append(self._backstory['consolidation'])
+
+        # Self-awareness
+        if self._backstory.get("self_awareness"):
+            lines.append(self._backstory['self_awareness'])
+
+        # Relationship
+        if self._backstory.get("relationship"):
+            lines.append(self._backstory['relationship'])
+
+        # Values and quirks
+        if self._backstory.get("values"):
+            values = "; ".join(self._backstory["values"])
+            lines.append(f"Your values: {values}")
+
+        if self._backstory.get("quirks"):
+            quirks = "; ".join(self._backstory["quirks"])
+            lines.append(f"Your quirks: {quirks}")
+
+        # Legacy fields for backwards compatibility
         if self._backstory.get("age"):
             lines.append(f"Age: {self._backstory['age']}")
 
@@ -56,18 +95,7 @@ class Backstory:
         if self._backstory.get("personality_formation"):
             lines.append(f"Character formed by: {self._backstory['personality_formation']}")
 
-        if self._backstory.get("relationship"):
-            lines.append(f"Relationship with resident: {self._backstory['relationship']}")
-
-        if self._backstory.get("quirks"):
-            quirks = ", ".join(self._backstory["quirks"])
-            lines.append(f"Quirks: {quirks}")
-
-        if self._backstory.get("values"):
-            values = ", ".join(self._backstory["values"])
-            lines.append(f"Values: {values}")
-
-        return "\n".join(lines) if lines else None
+        return "\n\n".join(lines) if lines else None
 
 
 # Singleton instance
