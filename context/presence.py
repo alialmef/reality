@@ -1,12 +1,19 @@
 """
 Simple door event tracking.
 Just tracks when the door was last opened - no guessing about enter/exit.
+Feeds events to pattern detector for routine learning.
 """
 
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List
+
+from context.patterns import get_pattern_detector
+
+
+# How much history to keep for pattern analysis
+HISTORY_RETENTION_DAYS = 30
 
 
 class PresenceTracker:
@@ -42,8 +49,8 @@ class PresenceTracker:
 
     def _save_state(self):
         """Persist state to disk."""
-        # Keep only last 7 days of history
-        cutoff = datetime.now() - timedelta(days=7)
+        # Keep history for pattern analysis
+        cutoff = datetime.now() - timedelta(days=HISTORY_RETENTION_DAYS)
         self.event_history = [e for e in self.event_history if e > cutoff]
 
         data = {
@@ -59,6 +66,7 @@ class PresenceTracker:
         """
         Record a door open event.
         Returns timing info for Claude to reason about.
+        Triggers pattern analysis to learn routines.
         """
         now = datetime.now()
 
@@ -73,11 +81,23 @@ class PresenceTracker:
         self.event_history.append(now)
         self._save_state()
 
+        # Analyze patterns (promotes strong patterns to user profile routines)
+        self._analyze_patterns()
+
         return {
             "current_time": now,
             "previous_door_event": previous_event,
             "seconds_since_last": seconds_since_last,
         }
+
+    def _analyze_patterns(self):
+        """Feed events to pattern detector for routine learning."""
+        if len(self.event_history) >= 5:  # Minimum needed for pattern detection
+            try:
+                detector = get_pattern_detector()
+                detector.update_patterns(self.event_history)
+            except Exception as e:
+                print(f"[PresenceTracker] Pattern analysis error: {e}")
 
     def get_today_count(self) -> int:
         """Count door events today."""
@@ -112,6 +132,7 @@ class PresenceTracker:
     def get_home_context(self) -> str:
         """
         Get a natural language summary of home activity for Alfred.
+        Includes detected patterns and routines.
         """
         now = datetime.now()
         summary = self.get_week_summary()
@@ -134,6 +155,16 @@ class PresenceTracker:
         # Yesterday comparison
         if summary["yesterday"] > 0:
             lines.append(f"Door events yesterday: {summary['yesterday']}")
+
+        # Include detected patterns
+        try:
+            detector = get_pattern_detector()
+            pattern_context = detector.get_context()
+            if pattern_context:
+                lines.append("")
+                lines.append(pattern_context)
+        except Exception:
+            pass
 
         return "\n".join(lines)
 
