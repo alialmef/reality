@@ -4,11 +4,9 @@ Assembles all available context for greeting generation.
 """
 
 from datetime import datetime
-from typing import Optional
 
 from context.presence import PresenceTracker
 from context.weather import WeatherContext
-from config import config
 
 
 class ContextGatherer:
@@ -21,26 +19,13 @@ class ContextGatherer:
     def gather(self) -> dict:
         """
         Gather all context for a door event.
-        Returns a dict with everything Alfred needs to know.
+        Returns raw data - let Claude decide what it means.
         """
         now = datetime.now()
 
-        # Determine if this is arriving or leaving
-        # If we're already home and door opens within 10 min of arrival, we're leaving
-        is_leaving = False
-        if self.presence.is_home and self.presence.last_arrival:
-            seconds_since_arrival = (now - self.presence.last_arrival).total_seconds()
-            if seconds_since_arrival < 600:  # 10 minutes
-                is_leaving = True
-
-        if is_leaving:
-            # Record departure
-            self.presence.record_departure()
-            seconds_away = None
-        else:
-            # Record arrival and get absence info
-            arrival_info = self.presence.record_arrival()
-            seconds_away = arrival_info.get("seconds_away")
+        # Record this door event and get timing
+        event_info = self.presence.record_door_event()
+        seconds_since_last = event_info["seconds_since_last"]
 
         # Time context
         hour = now.hour
@@ -59,11 +44,8 @@ class ContextGatherer:
         day_name = now.strftime("%A")
         is_weekend = now.weekday() >= 5
 
-        # Absence context
-        absence_description = self.presence.get_absence_description(seconds_away)
-        should_greet = (
-            seconds_away is None or seconds_away >= config.MIN_ABSENCE_SECONDS
-        )
+        # Time description
+        time_description = self.presence.get_time_description(seconds_since_last)
 
         # Weather (optional)
         weather_description = self.weather.get_weather_description()
@@ -73,10 +55,8 @@ class ContextGatherer:
             "hour": hour,
             "day_name": day_name,
             "is_weekend": is_weekend,
-            "seconds_away": seconds_away,
-            "absence_description": absence_description,
-            "should_greet": should_greet,
-            "is_leaving": is_leaving,
+            "seconds_since_last_door_event": seconds_since_last,
+            "time_since_last_description": time_description,
             "weather": weather_description,
             "timestamp": now.isoformat(),
         }

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Alfred - A warm presence at your door.
+Reality - A living home system.
 
-Listens for the front door to open, then greets you home
-with the warmth and wit of a trusted companion.
+The platform that powers intelligent agents in your home.
+Currently running: Alfred (door greeter + voice assistant)
 """
 
 import signal
@@ -13,77 +13,123 @@ import time
 from sensors import DoorSensor
 from context import ContextGatherer
 from personality import GreetingGenerator
-from voice import TextToSpeech, Speaker
+from voice import TextToSpeech, Speaker, VoiceListener
+from agents.alfred import AlfredAgent
 from config import config
 
 
-class Alfred:
-    """The main Alfred orchestrator."""
+class Reality:
+    """The Reality home system."""
 
     def __init__(self):
         print("\n" + "=" * 50)
-        print("  ALFRED")
-        print("  A warm presence at your door")
+        print("  REALITY")
+        print("  A living home system")
         print("=" * 50 + "\n")
 
         # Initialize components
-        print("[Alfred] Initializing components...")
+        print("[Reality] Initializing system...")
 
-        self.door_sensor = DoorSensor()
-        self.context_gatherer = ContextGatherer()
-        self.greeting_generator = GreetingGenerator()
+        # Core components
         self.tts = TextToSpeech()
         self.speaker = Speaker()
 
-        print("[Alfred] All components initialized\n")
+        # Door sensor components
+        self.door_sensor = DoorSensor()
+        self.context_gatherer = ContextGatherer()
+        self.greeting_generator = GreetingGenerator()
+
+        # Voice conversation components (optional - needs OpenAI key)
+        self.voice_enabled = False
+        self.listener = None
+        self.alfred_agent = None
+
+        if config.OPENAI_API_KEY:
+            try:
+                self.listener = VoiceListener()
+                # Give Alfred access to home context (door events, etc.)
+                self.alfred_agent = AlfredAgent(
+                    home_context_provider=self.context_gatherer.presence.get_home_context
+                )
+                self.voice_enabled = True
+                print("[Reality] Voice conversation enabled")
+            except Exception as e:
+                print(f"[Reality] Voice disabled: {e}")
+        else:
+            print("[Reality] Voice disabled (no OPENAI_API_KEY)")
+
+        print("[Reality] System initialized")
+        print("[Reality] Agents loaded:")
+        print("  - Alfred (door greeter)")
+        if self.voice_enabled:
+            print("  - Alfred (voice assistant) - say 'Alfred' to talk")
+        print()
 
     def on_door_opened(self, event: dict):
         """Handle door opened event."""
         print("\n" + "-" * 40)
-        print("[Alfred] Door opened!")
+        print("[Reality] Door opened")
 
         # Gather context
         context = self.context_gatherer.gather()
 
-        # Check if leaving
-        if context.get("is_leaving"):
-            print("[Alfred] Detected departure, not arrival. Safe travels.")
-            print("-" * 40 + "\n")
-            return
+        # Log timing info
+        time_desc = context.get('time_since_last_description', 'unknown')
+        print(f"[Reality] {context['time_of_day']}, {context['day_name']} - last door event: {time_desc}")
 
-        print(f"[Alfred] Arrival detected: {context['time_of_day']}, away for {context['absence_description']}")
-
-        # Check if we should greet
-        if not context["should_greet"]:
-            print("[Alfred] Brief absence, skipping greeting")
-            return
-
-        # Generate greeting
+        # Let Alfred decide whether to greet
+        print("[Reality] Asking Alfred...")
         greeting = self.greeting_generator.generate(context)
         if not greeting:
-            print("[Alfred] Failed to generate greeting")
+            print("[Alfred] *silence*")
+            print("-" * 40 + "\n")
             return
 
         # Speak it
         audio = self.tts.synthesize(greeting)
         if not audio:
-            print("[Alfred] Failed to synthesize speech")
+            print("[Reality] Failed to synthesize speech")
             return
 
         self.speaker.play(audio)
         print("-" * 40 + "\n")
 
+    def on_voice_command(self, command: str):
+        """Handle voice command from listener."""
+        print("\n" + "-" * 40)
+        print(f"[Reality] Voice command: {command}")
+
+        # Get response from Alfred
+        response = self.alfred_agent.respond(command)
+        if not response:
+            print("[Alfred] No response")
+            print("-" * 40 + "\n")
+            return
+
+        # Stream the response (faster time-to-first-audio)
+        audio_stream = self.tts.synthesize_stream(response)
+        self.speaker.play_stream(audio_stream)
+        print("-" * 40 + "\n")
+
     def run(self):
-        """Start Alfred and listen for events."""
-        print("[Alfred] Starting door sensor...")
+        """Start Reality and listen for events."""
+        # Start door sensor
+        print("[Reality] Starting door sensor...")
         self.door_sensor.start(self.on_door_opened)
 
-        print("[Alfred] Listening for arrivals. Press Ctrl+C to stop.\n")
+        # Start voice listener if enabled
+        if self.voice_enabled:
+            print("[Reality] Starting voice listener...")
+            self.listener.start_continuous(self.on_voice_command)
+
+        print("[Reality] Listening. Press Ctrl+C to stop.\n")
 
         # Handle graceful shutdown
         def shutdown(sig, frame):
-            print("\n[Alfred] Shutting down...")
+            print("\n[Reality] Shutting down...")
             self.door_sensor.stop()
+            if self.listener:
+                self.listener.stop()
             sys.exit(0)
 
         signal.signal(signal.SIGINT, shutdown)
@@ -97,14 +143,16 @@ class Alfred:
 def main():
     """Entry point."""
     try:
-        alfred = Alfred()
-        alfred.run()
+        reality = Reality()
+        reality.run()
     except ValueError as e:
         print(f"\n[Error] Configuration error: {e}")
         print("Please check your .env file and ensure all required API keys are set.")
         sys.exit(1)
     except Exception as e:
-        print(f"\n[Error] Failed to start Alfred: {e}")
+        print(f"\n[Error] Failed to start Reality: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 

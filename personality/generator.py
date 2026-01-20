@@ -32,25 +32,47 @@ class GreetingGenerator:
         try:
             user_message = get_greeting_prompt(context)
 
-            print(f"[Generator] Requesting greeting from Claude...")
+            print(f"[Alfred] Thinking...")
 
             response = self.client.messages.create(
                 model="claude-sonnet-4-20250514",
-                max_tokens=100,
+                max_tokens=300,
                 temperature=1.0,  # Add variety
                 system=ALFRED_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_message}],
             )
 
-            greeting = response.content[0].text.strip()
+            full_response = response.content[0].text.strip()
+
+            # Parse structured response
+            thinking = ""
+            decision = ""
+            greeting = ""
+
+            for line in full_response.split("\n"):
+                line = line.strip()
+                if line.upper().startswith("THINKING:"):
+                    thinking = line[9:].strip()
+                elif line.upper().startswith("DECISION:"):
+                    decision = line[9:].strip().lower()
+                elif line.upper().startswith("GREETING:"):
+                    greeting = line[9:].strip()
+
+            # Display Alfred's reasoning
+            print(f"[Alfred] Reasoning: {thinking}")
+            print(f"[Alfred] Decision: {decision}")
 
             # Remove any quotes if Claude wrapped it
             if greeting.startswith('"') and greeting.endswith('"'):
                 greeting = greeting[1:-1]
 
-            print(f"[Generator] Generated: {greeting}")
+            # Check if Alfred decided to stay silent
+            if decision == "silence" or "[silence]" in greeting.lower():
+                return None
+
+            print(f"[Alfred] Says: \"{greeting}\"")
             return greeting
 
         except Exception as e:
-            print(f"[Generator] Error generating greeting: {e}")
+            print(f"[Alfred] Error: {e}")
             return None
