@@ -4,8 +4,9 @@ Handles voice conversations with the Alfred personality.
 """
 
 import anthropic
+import re
 import time
-from typing import Optional, List, Dict, Callable
+from typing import Optional, List, Dict, Callable, Generator
 
 from config import config
 from personality.backstory import get_backstory_context
@@ -218,6 +219,109 @@ class AlfredAgent:
         except Exception as e:
             print(f"[Alfred] Error generating response: {e}")
             return "I'm sorry, sir. I seem to be having a moment. Could you try again?"
+
+    def respond_stream(self, user_input: str) -> Generator[str, None, None]:
+        """
+        Generate a streaming response - yields sentence chunks as they complete.
+        Allows TTS to start speaking before full response is ready.
+        """
+        try:
+            self.check_conversation_timeout()
+
+            self.conversation_history.append({
+                "role": "user",
+                "content": user_input
+            })
+
+            if len(self.conversation_history) > self.max_history * 2:
+                self.conversation_history = self.conversation_history[-self.max_history * 2:]
+
+            print(f"[Alfred] Thinking (streaming)...")
+
+            system_prompt = self._build_system_prompt()
+
+            # Stream the response
+            buffer = ""
+            full_response = ""
+
+            with self.client.messages.stream(
+                model="claude-sonnet-4-20250514",
+                max_tokens=300,
+                temperature=0.7,
+                system=system_prompt,
+                messages=self.conversation_history,
+            ) as stream:
+                for text in stream.text_stream:
+                    buffer += text
+                    full_response += text
+
+                    # Check for sentence boundaries
+                    sentences = re.split(r'(?<=[.!?])\s+', buffer)
+
+                    # Yield complete sentences, keep incomplete part in buffer
+                    if len(sentences) > 1:
+                        for sentence in sentences[:-1]:
+                            sentence = sentence.strip()
+                            if sentence:
+                                print(f"[Alfred] Chunk: {sentence}")
+                                yield sentence
+                        buffer = sentences[-1]
+
+            # Yield any remaining text
+            if buffer.strip():
+                print(f"[Alfred] Final chunk: {buffer.strip()}")
+                yield buffer.strip()
+
+            # Save to history
+            self.conversation_history.append({
+                "role": "assistant",
+                "content": full_response
+            })
+
+            print(f"[Alfred] Full response: {full_response}")
+            self.last_interaction_time = time.time()
+
+        except Exception as e:
+            print(f"[Alfred] Error streaming response: {e}")
+            yield "I'm sorry, sir. I seem to be having a moment."
+
+    def _build_system_prompt(self) -> str:
+        """Build the system prompt with all context."""
+        system_prompt = ALFRED_CONVERSATION_PROMPT
+
+        backstory = get_backstory_context()
+        if backstory:
+            system_prompt += BACKSTORY_SECTION.format(backstory=backstory)
+
+        profile = get_profile_context()
+        if profile:
+            system_prompt += USER_PROFILE_SECTION.format(profile=profile)
+
+        try:
+            consolidator = get_consolidator()
+            consolidator.maybe_consolidate()
+            understanding = get_understanding_context()
+            if understanding:
+                system_prompt += UNDERSTANDING_SECTION.format(understanding=understanding)
+        except Exception as e:
+            print(f"[Alfred] Warning: couldn't get understanding: {e}")
+
+        history = get_conversation_context()
+        if history:
+            system_prompt += CONVERSATION_HISTORY_SECTION.format(history=history)
+
+        if self.home_context_provider:
+            try:
+                home_context = self.home_context_provider()
+                system_prompt += HOME_CONTEXT_SECTION.format(home_context=home_context)
+            except Exception as e:
+                print(f"[Alfred] Warning: couldn't get home context: {e}")
+
+        gap_prompt = get_knowledge_gap_context()
+        if gap_prompt:
+            system_prompt += KNOWLEDGE_GAP_SECTION.format(gap_prompt=gap_prompt)
+
+        return system_prompt
 
     def save_conversation(self):
         """Save current conversation to memory."""

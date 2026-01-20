@@ -120,34 +120,33 @@ class Reality:
 
     def _continue_conversation(self, user_input: str):
         """Continue a conversation after initial exchange."""
-        response = self.alfred_agent.respond(user_input)
-        if not response:
-            return
-
-        # Speak Alfred's response
-        audio_stream = self.tts.synthesize_stream(response)
-        self.speaker.play_stream(audio_stream)
+        # Stream Claude -> TTS for faster response
+        self._speak_streaming_response(user_input)
 
         # Listen for follow-up
         follow_up = self.listener.listen_for_response(timeout=5.0)
         if follow_up:
             self._continue_conversation(follow_up)
 
+    def _speak_streaming_response(self, user_input: str):
+        """Stream Claude response sentence-by-sentence to TTS."""
+        sentence_count = 0
+        for sentence in self.alfred_agent.respond_stream(user_input):
+            sentence_count += 1
+            # Stream each sentence to TTS as soon as it's ready
+            audio_stream = self.tts.synthesize_stream(sentence)
+            self.speaker.play_stream(audio_stream)
+
+        if sentence_count == 0:
+            print("[Alfred] No response")
+
     def on_voice_command(self, command: str):
         """Handle voice command from listener."""
         print("\n" + "-" * 40)
         print(f"[Reality] Voice command: {command}")
 
-        # Get response from Alfred
-        response = self.alfred_agent.respond(command)
-        if not response:
-            print("[Alfred] No response")
-            print("-" * 40 + "\n")
-            return
-
-        # Stream the response (faster time-to-first-audio)
-        audio_stream = self.tts.synthesize_stream(response)
-        self.speaker.play_stream(audio_stream)
+        # Stream Claude -> TTS for faster time-to-first-audio
+        self._speak_streaming_response(command)
         print("-" * 40 + "\n")
 
     def run(self):
