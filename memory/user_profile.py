@@ -1,12 +1,22 @@
 """
 User profile - learns about the resident from conversations.
 Starts empty and builds understanding over time.
+Implements forgetting curve and reinforcement for natural memory.
 """
 
 import json
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict
+
+
+# Memory constants
+CONFIDENCE_DECAY_PER_WEEK = 0.1   # Facts lose confidence over time
+REINFORCEMENT_BOOST = 0.2         # Hearing fact again boosts confidence
+MAX_CONFIDENCE = 1.0
+FADE_THRESHOLD = 0.3              # Below this, excluded from prompts
+FORGET_THRESHOLD = 0.1            # Below this, can be pruned
 
 
 class UserProfile:
@@ -49,6 +59,37 @@ class UserProfile:
         with open(self.profile_file, "w") as f:
             json.dump(self._data, f, indent=2)
 
+    def _calculate_effective_confidence(self, fact: Dict) -> float:
+        """
+        Calculate effective confidence with decay over time.
+        Facts lose CONFIDENCE_DECAY_PER_WEEK confidence each week since last reinforcement.
+        """
+        # Use last_reinforced if available, otherwise learned date
+        reference_date = fact.get("last_reinforced") or fact.get("learned")
+        if not reference_date:
+            return fact.get("confidence", 0)
+
+        try:
+            ref_dt = datetime.fromisoformat(reference_date)
+            days_elapsed = (datetime.now() - ref_dt).days
+            weeks_elapsed = days_elapsed / 7
+
+            base_confidence = fact.get("confidence", 0)
+            decay = weeks_elapsed * CONFIDENCE_DECAY_PER_WEEK
+            effective = base_confidence - decay
+
+            return max(0, min(MAX_CONFIDENCE, effective))
+        except Exception:
+            return fact.get("confidence", 0)
+
+    def _find_similar_fact(self, new_fact: str) -> Optional[Dict]:
+        """Find an existing fact that matches the new one."""
+        new_lower = new_fact.lower().strip()
+        for existing in self._data["learned_facts"]:
+            if existing["fact"].lower().strip() == new_lower:
+                return existing
+        return None
+
     @property
     def name(self) -> str:
         """How Alfred addresses the user."""
@@ -56,31 +97,48 @@ class UserProfile:
 
     def add_fact(self, fact: str, confidence: float = 0.7, source: str = "conversation"):
         """
-        Add a learned fact about the user.
+        Add a learned fact about the user, or reinforce if already known.
 
         Args:
             fact: The fact learned (e.g., "Works in technology")
             confidence: How confident Alfred is (0.0-1.0)
             source: Where this was learned from
         """
-        # Check for duplicates
-        for existing in self._data["learned_facts"]:
-            if existing["fact"].lower() == fact.lower():
-                # Update confidence if higher
-                if confidence > existing["confidence"]:
-                    existing["confidence"] = confidence
-                    existing["updated"] = datetime.now().isoformat()
-                self._save()
-                return
+        existing = self._find_similar_fact(fact)
 
+        if existing:
+            # Reinforce existing fact
+            self._reinforce_fact(existing, source)
+            return
+
+        # New fact
         self._data["learned_facts"].append({
+            "id": f"fact_{uuid.uuid4().hex[:8]}",
             "fact": fact,
-            "confidence": confidence,
+            "confidence": min(confidence, MAX_CONFIDENCE),
             "source": source,
             "learned": datetime.now().isoformat(),
+            "last_reinforced": datetime.now().isoformat(),
+            "reinforcement_count": 0,
+            "status": "active",
         })
         self._save()
         print(f"[UserProfile] Learned: {fact}")
+
+    def _reinforce_fact(self, fact: Dict, source: str = "conversation"):
+        """
+        Reinforce an existing fact - boosts confidence and resets decay.
+        Called when we hear the same fact again.
+        """
+        old_confidence = fact.get("confidence", 0)
+        new_confidence = min(old_confidence + REINFORCEMENT_BOOST, MAX_CONFIDENCE)
+
+        fact["confidence"] = new_confidence
+        fact["last_reinforced"] = datetime.now().isoformat()
+        fact["reinforcement_count"] = fact.get("reinforcement_count", 0) + 1
+
+        self._save()
+        print(f"[UserProfile] Reinforced: {fact['fact']} ({old_confidence:.1f} → {new_confidence:.1f})")
 
     def add_preference(self, key: str, value: str, source: str = "conversation"):
         """Add or update a preference."""
@@ -114,11 +172,53 @@ class UserProfile:
         self._save()
 
     def get_facts(self, min_confidence: float = 0.5) -> List[Dict]:
-        """Get facts above a confidence threshold."""
-        return [
+        """
+        Get facts above a confidence threshold.
+        Uses effective confidence (with decay applied).
+        """
+        result = []
+        for fact in self._data["learned_facts"]:
+            if fact.get("status") == "forgotten":
+                continue
+
+            effective_conf = self._calculate_effective_confidence(fact)
+
+            # Update status based on effective confidence
+            if effective_conf < FORGET_THRESHOLD:
+                fact["status"] = "forgotten"
+            elif effective_conf < FADE_THRESHOLD:
+                fact["status"] = "faded"
+            else:
+                fact["status"] = "active"
+
+            if effective_conf >= min_confidence:
+                result.append({
+                    **fact,
+                    "effective_confidence": effective_conf,
+                })
+
+        # Sort by effective confidence (highest first)
+        result.sort(key=lambda f: f["effective_confidence"], reverse=True)
+        return result
+
+    def prune_forgotten(self) -> int:
+        """
+        Remove facts that have decayed below the forget threshold.
+        Returns count of pruned facts.
+        """
+        before_count = len(self._data["learned_facts"])
+        self._data["learned_facts"] = [
             f for f in self._data["learned_facts"]
-            if f["confidence"] >= min_confidence
+            if self._calculate_effective_confidence(f) >= FORGET_THRESHOLD
         ]
+        after_count = len(self._data["learned_facts"])
+        pruned = before_count - after_count
+
+        if pruned > 0:
+            self._save()
+            print(f"[UserProfile] Pruned {pruned} forgotten facts")
+
+        return pruned
 
     def get_context(self) -> Optional[str]:
         """
@@ -131,10 +231,10 @@ class UserProfile:
         if self._data["name"] != "sir":
             lines.append(f"Address them as: {self._data['name']}")
 
-        # High-confidence facts
-        facts = self.get_facts(min_confidence=0.6)
+        # Active facts (above fade threshold)
+        facts = self.get_facts(min_confidence=FADE_THRESHOLD)
         if facts:
-            fact_strs = [f["fact"] for f in facts[:5]]  # Top 5
+            fact_strs = [f["fact"] for f in facts[:5]]  # Top 5 by confidence
             lines.append(f"What you know: {'; '.join(fact_strs)}")
 
         # Preferences
