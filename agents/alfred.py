@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Callable
 
 from config import config
 from personality.backstory import get_backstory_context
-from memory.user_profile import get_profile_context
+from memory.user_profile import get_profile_context, get_knowledge_gap_context
 from memory.conversation_store import get_conversation_store, get_conversation_context
 
 
@@ -96,6 +96,13 @@ Only bring up past topics if they're genuinely connected to the current discussi
 """
 
 
+KNOWLEDGE_GAP_SECTION = """
+<curiosity>
+{gap_prompt}
+</curiosity>
+"""
+
+
 class AlfredAgent:
     """
     Alfred conversational agent.
@@ -161,6 +168,11 @@ class AlfredAgent:
                     system_prompt += HOME_CONTEXT_SECTION.format(home_context=home_context)
                 except Exception as e:
                     print(f"[Alfred] Warning: couldn't get home context: {e}")
+
+            # Occasionally suggest asking about knowledge gaps
+            gap_prompt = get_knowledge_gap_context()
+            if gap_prompt:
+                system_prompt += KNOWLEDGE_GAP_SECTION.format(gap_prompt=gap_prompt)
 
             response = self.client.messages.create(
                 model="claude-sonnet-4-20250514",

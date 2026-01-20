@@ -55,7 +55,40 @@ class UserProfile:
             "routines": {},
             "interests": [],
             "important_dates": {},
+            "knowledge_gaps": self._default_knowledge_gaps(),
         }
+
+    def _default_knowledge_gaps(self) -> List[Dict]:
+        """Things Alfred naturally wants to learn about the resident."""
+        return [
+            {
+                "id": "gap_name",
+                "topic": "preferred_name",
+                "question": "How would you like me to address you?",
+                "priority": "high",
+                "asked": False,
+                "asked_date": None,
+                "cooldown_days": 30,
+            },
+            {
+                "id": "gap_work",
+                "topic": "occupation",
+                "question": "What sort of work keeps you busy these days?",
+                "priority": "low",
+                "asked": False,
+                "asked_date": None,
+                "cooldown_days": 60,
+            },
+            {
+                "id": "gap_schedule",
+                "topic": "daily_schedule",
+                "question": "Do you have a typical schedule I should be aware of?",
+                "priority": "medium",
+                "asked": False,
+                "asked_date": None,
+                "cooldown_days": 45,
+            },
+        ]
 
     def _save(self):
         """Persist profile to disk."""
@@ -252,6 +285,115 @@ Only identify clear, direct contradictions - not just differences or updates."""
         self._data["important_dates"][name] = date
         self._save()
 
+    def add_knowledge_gap(
+        self,
+        topic: str,
+        question: str,
+        priority: str = "low",
+        cooldown_days: int = 30
+    ):
+        """
+        Add a new knowledge gap - something Alfred wants to learn.
+
+        Args:
+            topic: What this gap is about (e.g., "favorite_food")
+            question: Natural question Alfred can ask
+            priority: "high", "medium", or "low"
+            cooldown_days: Days to wait before asking again if not answered
+        """
+        # Ensure knowledge_gaps exists
+        if "knowledge_gaps" not in self._data:
+            self._data["knowledge_gaps"] = self._default_knowledge_gaps()
+
+        # Check if topic already exists
+        for gap in self._data["knowledge_gaps"]:
+            if gap["topic"] == topic:
+                return  # Already tracking this
+
+        gap_id = f"gap_{uuid.uuid4().hex[:8]}"
+        self._data["knowledge_gaps"].append({
+            "id": gap_id,
+            "topic": topic,
+            "question": question,
+            "priority": priority,
+            "asked": False,
+            "asked_date": None,
+            "cooldown_days": cooldown_days,
+        })
+        self._save()
+        print(f"[UserProfile] New knowledge gap: {topic}")
+
+    def get_question_to_ask(self) -> Optional[Dict]:
+        """
+        Get a question Alfred can naturally ask to fill a knowledge gap.
+        Returns None if no appropriate question or cooldown hasn't passed.
+        Only returns questions occasionally to avoid being annoying.
+        """
+        if "knowledge_gaps" not in self._data:
+            self._data["knowledge_gaps"] = self._default_knowledge_gaps()
+            self._save()
+
+        now = datetime.now()
+        candidates = []
+
+        for gap in self._data["knowledge_gaps"]:
+            if gap.get("filled"):
+                continue
+
+            # Check cooldown if previously asked
+            if gap.get("asked") and gap.get("asked_date"):
+                try:
+                    asked_dt = datetime.fromisoformat(gap["asked_date"])
+                    days_since = (now - asked_dt).days
+                    if days_since < gap.get("cooldown_days", 30):
+                        continue
+                except Exception:
+                    pass
+
+            candidates.append(gap)
+
+        if not candidates:
+            return None
+
+        # Sort by priority (high first), then by whether never asked
+        priority_order = {"high": 0, "medium": 1, "low": 2}
+        candidates.sort(
+            key=lambda g: (priority_order.get(g["priority"], 2), g.get("asked", False))
+        )
+
+        return candidates[0]
+
+    def mark_gap_asked(self, gap_id: str):
+        """Mark a knowledge gap as having been asked."""
+        if "knowledge_gaps" not in self._data:
+            return
+
+        for gap in self._data["knowledge_gaps"]:
+            if gap["id"] == gap_id:
+                gap["asked"] = True
+                gap["asked_date"] = datetime.now().isoformat()
+                self._save()
+                print(f"[UserProfile] Asked about: {gap['topic']}")
+                break
+
+    def fill_knowledge_gap(self, topic: str, answer: str = None):
+        """
+        Mark a knowledge gap as filled (we learned the answer).
+        Called when conversation reveals the information.
+        """
+        if "knowledge_gaps" not in self._data:
+            return
+
+        for gap in self._data["knowledge_gaps"]:
+            if gap["topic"] == topic:
+                gap["filled"] = True
+                gap["filled_date"] = datetime.now().isoformat()
+                if answer:
+                    gap["answer"] = answer
+                self._save()
+                print(f"[UserProfile] Filled gap: {topic}")
+                break
+
     def get_facts(self, min_confidence: float = 0.5) -> List[Dict]:
         """
         Get facts above a confidence threshold.
@@ -378,6 +520,23 @@ Only identify clear, direct contradictions - not just differences or updates."""
 
         return "\n".join(lines) if lines else None
 
+    def get_knowledge_gap_context(self) -> Optional[str]:
+        """
+        Get a natural prompt encouraging Alfred to ask about a knowledge gap.
+        Returns None most of the time - only occasionally suggests a question.
+        """
+        gap = self.get_question_to_ask()
+        if not gap:
+            return None
+
+        # Only suggest asking occasionally (roughly 1 in 5 conversations)
+        import random
+        if random.random() > 0.2:
+            return None
+
+        return f"""You might naturally ask: "{gap['question']}"
+(Only if it fits the conversation naturally - don't force it)"""
+
 
 # Singleton instance
 _profile = None
@@ -394,3 +553,8 @@ def get_user_profile() -> UserProfile:
 def get_profile_context() -> Optional[str]:
     """Convenience function to get formatted profile."""
     return get_user_profile().get_context()
+
+
+def get_knowledge_gap_context() -> Optional[str]:
+    """Convenience function to get knowledge gap prompt."""
+    return get_user_profile().get_knowledge_gap_context()
