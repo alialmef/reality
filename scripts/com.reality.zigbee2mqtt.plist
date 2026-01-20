@@ -7,8 +7,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/npm</string>
-        <string>start</string>
+        <string>/Users/alialmeflehi/reality/scripts/start-zigbee2mqtt.sh</string>
     </array>
 
     <key>WorkingDirectory</key>
@@ -29,7 +28,7 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin</string>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>
 </dict>
 </plist>
