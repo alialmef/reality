@@ -4,11 +4,13 @@ Handles voice conversations with the Alfred personality.
 """
 
 import anthropic
+import time
 from typing import Optional, List, Dict, Callable
 
 from config import config
 from personality.backstory import get_backstory_context
 from memory.user_profile import get_profile_context
+from memory.conversation_store import get_conversation_store, get_conversation_context
 
 
 ALFRED_CONVERSATION_PROMPT = """
@@ -84,6 +86,16 @@ don't announce that you "remember" things, just act on what you know.
 """
 
 
+CONVERSATION_HISTORY_SECTION = """
+<past_conversations>
+You can reference these past conversations naturally if relevant, but don't force it.
+Only bring up past topics if they're genuinely connected to the current discussion.
+
+{history}
+</past_conversations>
+"""
+
+
 class AlfredAgent:
     """
     Alfred conversational agent.
@@ -98,6 +110,8 @@ class AlfredAgent:
         self.conversation_history: List[Dict] = []
         self.max_history = 20  # Keep last N exchanges
         self.home_context_provider = home_context_provider
+        self.last_interaction_time: float = 0
+        self.conversation_timeout = 300  # 5 minutes of silence = conversation over
 
         print("[Alfred] Agent initialized")
 
@@ -107,6 +121,9 @@ class AlfredAgent:
         Maintains conversation history for context.
         """
         try:
+            # Check if previous conversation timed out
+            self.check_conversation_timeout()
+
             # Add user message to history
             self.conversation_history.append({
                 "role": "user",
@@ -131,6 +148,11 @@ class AlfredAgent:
             profile = get_profile_context()
             if profile:
                 system_prompt += USER_PROFILE_SECTION.format(profile=profile)
+
+            # Add past conversation summaries
+            history = get_conversation_context()
+            if history:
+                system_prompt += CONVERSATION_HISTORY_SECTION.format(history=history)
 
             # Add home context if available
             if self.home_context_provider:
@@ -157,13 +179,41 @@ class AlfredAgent:
             })
 
             print(f"[Alfred] Response: {reply}")
+            self.last_interaction_time = time.time()
             return reply
 
         except Exception as e:
             print(f"[Alfred] Error generating response: {e}")
             return "I'm sorry, sir. I seem to be having a moment. Could you try again?"
 
+    def save_conversation(self):
+        """Save current conversation to memory."""
+        if len(self.conversation_history) >= 2:
+            store = get_conversation_store()
+            store.store_conversation(self.conversation_history)
+            return True
+        return False
+
+    def check_conversation_timeout(self):
+        """
+        Check if current conversation has timed out (gone idle).
+        If so, save it and clear history.
+        """
+        if not self.conversation_history:
+            return
+
+        if self.last_interaction_time == 0:
+            return
+
+        idle_time = time.time() - self.last_interaction_time
+        if idle_time > self.conversation_timeout:
+            print(f"[Alfred] Conversation idle for {idle_time:.0f}s, saving...")
+            if self.save_conversation():
+                self.conversation_history = []
+                self.last_interaction_time = 0
+
     def clear_history(self):
-        """Clear conversation history."""
+        """Save and clear conversation history."""
+        self.save_conversation()
         self.conversation_history = []
         print("[Alfred] Conversation history cleared")
