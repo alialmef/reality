@@ -229,6 +229,73 @@ class VoiceListener:
 
         return None
 
+    def listen_for_response(self, timeout: float = 4.0) -> Optional[str]:
+        """
+        Listen briefly for a response (no wake word needed).
+        Used after Alfred speaks to see if user responds.
+
+        Args:
+            timeout: Max seconds to wait for speech
+
+        Returns:
+            Transcribed response, or None if silence
+        """
+        print(f"[Listener] Listening for response ({timeout}s)...")
+
+        chunks = []
+        speech_detected = False
+        silence_start = None
+        listen_start = time.time()
+
+        # Clear the queue
+        while not self.audio_queue.empty():
+            try:
+                self.audio_queue.get_nowait()
+            except queue.Empty:
+                break
+
+        with sd.InputStream(
+            samplerate=self.sample_rate,
+            channels=self.channels,
+            dtype=np.float32,
+            callback=self._audio_callback,
+            blocksize=int(self.sample_rate * self.chunk_duration),
+        ):
+            while time.time() - listen_start < timeout:
+                try:
+                    chunk = self.audio_queue.get(timeout=0.1)
+                    rms = self._get_rms(chunk)
+
+                    if rms > self.silence_threshold:
+                        chunks.append(chunk)
+                        speech_detected = True
+                        silence_start = None
+                    elif speech_detected:
+                        # We had speech, now silence - check if they're done
+                        chunks.append(chunk)  # Include trailing silence
+                        if silence_start is None:
+                            silence_start = time.time()
+                        elif time.time() - silence_start > 1.5:  # 1.5s silence = done
+                            print("[Listener] Response complete")
+                            break
+
+                except queue.Empty:
+                    continue
+
+        if not speech_detected or not chunks:
+            print("[Listener] No response detected")
+            return None
+
+        # Transcribe what we got
+        audio = np.concatenate(chunks).flatten()
+        if len(audio) > self.sample_rate * 0.3:  # At least 0.3s of audio
+            text = self._transcribe(audio)
+            if text:
+                print(f"[Listener] Response: {text}")
+                return text
+
+        return None
+
     def start_continuous(self, on_command: Callable[[str], None]):
         """
         Start continuous listening in a background thread.
