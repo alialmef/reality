@@ -11,6 +11,7 @@ from typing import Optional, List, Dict
 
 from config import config
 from memory.user_profile import get_user_profile
+from memory.relationships import get_relationship_graph
 
 
 SUMMARIZE_PROMPT = """Summarize this conversation between Alfred (an AI butler) and the user.
@@ -23,6 +24,14 @@ Provide a JSON response with:
 2. "topics": List of topics covered (max 5)
 3. "facts_learned": List of facts learned about the user (things they mentioned about themselves, their preferences, plans, etc.) - only include if clearly stated, not inferred
 4. "mood": The user's apparent mood (e.g., "relaxed", "stressed", "curious")
+5. "people_mentioned": List of people mentioned in the conversation, each with:
+   - "name": The person's name (e.g., "Sarah", "Marcus from Brooklyn", "my brother Tom")
+   - "relationship": How user knows them (friend, brother, sister, colleague, boss, etc.) - use "acquaintance" if unclear
+   - "details": List of any facts learned about this person (e.g., ["works at Google", "into vinyl records"])
+   - "visiting": true if user mentioned they're visiting/coming over, false otherwise
+   - "visit_time": When they're visiting if mentioned (e.g., "tomorrow", "Thursday", "next week")
+
+Only include people_mentioned if people were actually mentioned. Do not include Alfred or the user themselves.
 
 Respond ONLY with valid JSON, no other text."""
 
@@ -97,8 +106,8 @@ class ConversationStore:
 
         try:
             response = self.client.messages.create(
-                model="claude-3-5-haiku-20241022",  # Fast and cheap for summarization
-                max_tokens=500,
+                model="claude-3-5-sonnet-20241022",  # Good balance of quality and cost
+                max_tokens=1000,
                 temperature=0,
                 messages=[{
                     "role": "user",
@@ -132,7 +141,7 @@ class ConversationStore:
     def store_conversation(self, messages: List[Dict]):
         """
         Summarize and store a conversation.
-        Also extracts facts to the user profile.
+        Also extracts facts to the user profile and people to the relationship graph.
         """
         summary = self.summarize_conversation(messages)
         if not summary:
@@ -155,6 +164,20 @@ class ConversationStore:
                 confidence=0.7,
                 source=f"conversation {summary['date'][:10]}"
             )
+
+        # Process people mentioned into relationship graph
+        graph = get_relationship_graph()
+        for person in summary.get("people_mentioned", []):
+            try:
+                graph.process_mention(
+                    name=person.get("name", ""),
+                    relationship_type=person.get("relationship", "acquaintance"),
+                    details=person.get("details", []),
+                    visiting=person.get("visiting", False),
+                    visit_time=person.get("visit_time"),
+                )
+            except Exception as e:
+                print(f"[ConversationStore] Error processing person {person}: {e}")
 
     def get_recent_summaries(self, count: int = 5) -> List[Dict]:
         """Get the most recent conversation summaries."""

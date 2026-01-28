@@ -1,0 +1,30 @@
+{
+  "lights": {
+    "living_room": {
+      "id": "0x_YOUR_ZIGBEE_ID_HERE",
+      "name": "living_room",
+      "location": "living room"
+    },
+    "kitchen": {
+      "id": "0x_YOUR_ZIGBEE_ID_HERE",
+      "name": "kitchen",
+      "location": "kitchen"
+    }
+  },
+  "rooms": {
+    "living room": ["living_room"],
+    "kitchen": ["kitchen"]
+  },
+  "diffusers": {
+    "eucalyptus": {
+      "id": "0x_YOUR_ZIGBEE_ID_HERE",
+      "name": "Eucalyptus Diffuser",
+      "scent": "eucalyptus",
+      "description": "Fresh, clean eucalyptus scent"
+    }
+  },
+  "coffee_maker": {
+    "id": "0x_YOUR_ZIGBEE_ID_HERE",
+    "name": "Coffee Maker"
+  }
+}

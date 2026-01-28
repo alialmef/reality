@@ -16,6 +16,11 @@ from memory.consolidation import (
     get_consolidator,
     get_understanding_context,
 )
+from memory.relationships import (
+    RelationshipGraph,
+    get_relationship_graph,
+    get_relationships_context,
+)
 
 __all__ = [
     "UserProfile",
@@ -28,4 +33,7 @@ __all__ = [
     "MemoryConsolidator",
     "get_consolidator",
     "get_understanding_context",
+    "RelationshipGraph",
+    "get_relationship_graph",
+    "get_relationships_context",
 ]

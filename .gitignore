@@ -9,10 +9,15 @@ __pycache__/
 *.pyo
 .Python
 
-# Data (local state, but keep templates)
+# Instance-specific config (keep examples)
+config/devices.json
+config/audio.json
+!config/*.example.json
+
+# Data (local state, but keep examples and backstory)
 data/*
 !data/backstory.json
-!data/user_profile.json
+!data/*.example.json
 
 # Logs
 *.log

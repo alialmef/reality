@@ -1,0 +1,37 @@
+{
+  "name": "sir",
+  "learned_facts": [],
+  "preferences": {},
+  "routines": {},
+  "interests": [],
+  "important_dates": {},
+  "knowledge_gaps": [
+    {
+      "id": "gap_name",
+      "topic": "preferred_name",
+      "question": "How would you like me to address you?",
+      "priority": "high",
+      "asked": false,
+      "asked_date": null,
+      "cooldown_days": 30
+    },
+    {
+      "id": "gap_work",
+      "topic": "occupation",
+      "question": "What sort of work keeps you busy these days?",
+      "priority": "low",
+      "asked": false,
+      "asked_date": null,
+      "cooldown_days": 60
+    },
+    {
+      "id": "gap_schedule",
+      "topic": "daily_schedule",
+      "question": "Do you have a typical schedule I should be aware of?",
+      "priority": "medium",
+      "asked": false,
+      "asked_date": null,
+      "cooldown_days": 45
+    }
+  ]
+}

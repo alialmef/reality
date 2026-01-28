@@ -1,0 +1,10 @@
+{
+  "speaker": {
+    "device": null,
+    "description": "Audio output device for Alfred's voice. Run 'mpv --audio-device=help' to list. macOS format: 'coreaudio/DEVICE-ID:output'. Windows format: 'wasapi/DEVICE-NAME'. Set to null for system default."
+  },
+  "microphone": {
+    "device_index": null,
+    "description": "Microphone device index for voice input. Run 'python -c \"import sounddevice; print(sounddevice.query_devices())\"' to list. Set to null for system default."
+  }
+}

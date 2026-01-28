@@ -1,4 +1,55 @@
-# Alfred Setup Guide
+# Reality Setup Guide
+
+Complete setup instructions for deploying Reality on macOS or Windows.
+
+## Quick Start (All Platforms)
+
+1. Clone the repo
+2. Copy example configs:
+   ```bash
+   cp .env.example .env
+   cp config/devices.example.json config/devices.json
+   cp config/audio.example.json config/audio.json
+   cp data/user_profile.example.json data/user_profile.json
+   cp data/relationships.example.json data/relationships.json
+   ```
+3. Edit configs with your values (see Configuration section below)
+4. Install dependencies: `pip install -r requirements.txt`
+5. Run: `python main.py`
+
+## Configuration
+
+### API Keys (.env)
+```
+ANTHROPIC_API_KEY=your_key       # Required - Claude for conversation
+OPENAI_API_KEY=your_key          # Required - Whisper for speech-to-text
+ELEVENLABS_API_KEY=your_key      # Required - Text-to-speech
+ELEVENLABS_VOICE_ID=your_voice   # Required - Voice ID from ElevenLabs
+MQTT_BROKER=localhost            # Zigbee2MQTT broker address
+MQTT_PORT=1883
+```
+
+### Zigbee Devices (config/devices.json)
+Find your device IDs in the Zigbee2MQTT dashboard (usually http://localhost:8080).
+
+### Audio Devices (config/audio.json)
+
+**Find speaker device:**
+```bash
+mpv --audio-device=help
+```
+- macOS: `coreaudio/XX-XX-XX-XX-XX-XX:output`
+- Windows: `wasapi/Speaker Name`
+
+**Find microphone device:**
+```bash
+python -c "import sounddevice; print(sounddevice.query_devices())"
+```
+Use the device index number.
+
+---
+
+# macOS Setup (Detailed)
 
 Complete setup instructions for deploying Alfred on a new Mac Mini (or any always-on Mac).
 
@@ -472,3 +523,146 @@ tail -f /tmp/zigbee2mqtt.log
 ---
 
 You're done. When you walk through your door, your home will greet you.
+
+---
+
+# Windows Setup
+
+## Prerequisites
+
+1. **Windows PC** that will stay on
+2. **Zigbee USB Coordinator** (e.g., SONOFF Zigbee 3.0 USB Dongle)
+3. **Microphone/Speaker** (or speakerphone)
+4. **API Keys** (Anthropic, OpenAI, ElevenLabs)
+
+## Step 1: Install Dependencies
+
+### Install Python
+Download from python.org and ensure "Add to PATH" is checked.
+
+### Install Node.js
+Download from nodejs.org.
+
+### Install Mosquitto (MQTT Broker)
+Download from mosquitto.org/download/
+
+After install, start the service:
+```cmd
+net start mosquitto
+```
+
+### Install mpv
+Download from mpv.io and add to PATH.
+
+### Install nircmd (Optional - for volume control)
+Download from nirsoft.net/utils/nircmd.html and add to PATH.
+
+## Step 2: Install Zigbee2MQTT
+
+```cmd
+cd %USERPROFILE%
+git clone --depth 1 https://github.com/Koenkk/zigbee2mqtt.git
+cd zigbee2mqtt
+npm ci
+```
+
+Find your Zigbee dongle's COM port in Device Manager (e.g., `COM3`).
+
+Create `data/configuration.yaml`:
+```yaml
+homeassistant:
+  enabled: false
+mqtt:
+  base_topic: zigbee2mqtt
+  server: mqtt://localhost
+serial:
+  port: COM3
+  adapter: ezsp
+frontend:
+  enabled: true
+  port: 8080
+advanced:
+  log_level: info
+permit_join: true
+```
+
+## Step 3: Clone and Configure Reality
+
+```cmd
+cd %USERPROFILE%
+git clone <your-repo-url> reality
+cd reality
+
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+Copy and edit configs:
+```cmd
+copy .env.example .env
+copy config\devices.example.json config\devices.json
+copy config\audio.example.json config\audio.json
+copy data\user_profile.example.json data\user_profile.json
+copy data\relationships.example.json data\relationships.json
+```
+
+## Step 4: Configure Audio
+
+Find speaker device:
+```cmd
+mpv --audio-device=help
+```
+Look for lines like `wasapi/Speakers (Realtek...)` and copy to `config/audio.json`.
+
+Find microphone:
+```cmd
+python -c "import sounddevice; print(sounddevice.query_devices())"
+```
+Note the index number and add to `config/audio.json`.
+
+## Step 5: Test
+
+Start Zigbee2MQTT:
+```cmd
+cd %USERPROFILE%\zigbee2mqtt
+npm start
+```
+
+In another terminal, start Reality:
+```cmd
+cd %USERPROFILE%\reality
+venv\Scripts\activate
+python main.py
+```
+
+## Step 6: Run as Windows Service (Optional)
+
+Use NSSM (Non-Sucking Service Manager) to run as services:
+
+```cmd
+# Download nssm from nssm.cc
+nssm install zigbee2mqtt
+# Set path to: npm
+# Set arguments to: start
+# Set startup directory to: C:\Users\YOU\zigbee2mqtt
+
+nssm install reality
+# Set path to: C:\Users\YOU\reality\venv\Scripts\python.exe
+# Set arguments to: main.py
+# Set startup directory to: C:\Users\YOU\reality
+```
+
+## Windows-Specific Notes
+
+### Music Control
+- Uses global media keys (works with Spotify, Windows Media Player, etc.)
+- For volume control, install nircmd from nirsoft.net
+
+### Audio Device Switching
+- Not automated on Windows
+- Set your default devices in Windows Sound Settings
+
+### Spotify Search
+- Opens Spotify app with search query
+- Requires Spotify desktop app installed

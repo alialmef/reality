@@ -55,7 +55,10 @@ class GreetingGenerator:
                     thinking = line[9:].strip()
                 elif line.upper().startswith("DECISION:"):
                     decision = line[9:].strip().lower()
+                elif line.upper().startswith("RESPONSE:"):
+                    greeting = line[9:].strip()
                 elif line.upper().startswith("GREETING:"):
+                    # Fallback in case Claude uses GREETING instead
                     greeting = line[9:].strip()
 
             # Display Alfred's reasoning

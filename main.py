@@ -43,7 +43,6 @@ class Reality:
         self.voice_enabled = False
         self.listener = None
         self.alfred_agent = None
-
         if config.OPENAI_API_KEY:
             try:
                 self.listener = VoiceListener()
@@ -93,45 +92,7 @@ class Reality:
 
         self.speaker.play(audio)
 
-        # Listen for response - greeting can start a conversation
-        if self.voice_enabled and self.listener:
-            self._listen_after_greeting(greeting)
-
         print("-" * 40 + "\n")
-
-    def _listen_after_greeting(self, greeting: str):
-        """Listen briefly after greeting to see if user wants to chat."""
-        response = self.listener.listen_for_response(timeout=4.0)
-
-        if not response:
-            return  # Silence - they're busy, let it go
-
-        # They responded - start a conversation
-        print(f"[Reality] User responded: {response}")
-
-        # Prime Alfred with the greeting context so he knows what he said
-        self.alfred_agent.conversation_history.append({
-            "role": "assistant",
-            "content": greeting
-        })
-
-        # Now handle their response as a conversation
-        self._continue_conversation(response)
-
-    def _continue_conversation(self, user_input: str):
-        """Continue a conversation after initial exchange."""
-        response = self.alfred_agent.respond(user_input)
-        if not response:
-            return
-
-        # Speak Alfred's response
-        audio_stream = self.tts.synthesize_stream(response)
-        self.speaker.play_stream(audio_stream)
-
-        # Listen for follow-up
-        follow_up = self.listener.listen_for_response(timeout=5.0)
-        if follow_up:
-            self._continue_conversation(follow_up)
 
     def on_voice_command(self, command: str):
         """Handle voice command from listener."""

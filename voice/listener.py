@@ -4,11 +4,13 @@ Handles microphone input, wake word detection, and speech-to-text.
 """
 
 import io
+import json
+import os
 import queue
 import tempfile
 import threading
 import time
-from typing import Callable, Optional
+from typing import Callable, Optional, Any
 
 import numpy as np
 import sounddevice as sd
@@ -18,12 +20,24 @@ from scipy.io import wavfile
 from config import config
 
 
+def _load_audio_config():
+    """Load audio configuration from config/audio.json."""
+    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "audio.json")
+    try:
+        with open(config_path) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"[Listener] Warning: {config_path} not found, using default device")
+        return {"microphone": {"device_index": None}}
+
+
 class VoiceListener:
     """
     Listens for the wake word "Alfred" and transcribes speech.
+    Uses configured microphone for voice input.
     """
 
-    def __init__(self):
+    def __init__(self, input_device: int = None):
         if not config.OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY not configured")
 
@@ -33,15 +47,26 @@ class VoiceListener:
         self.chunk_duration = 0.5  # seconds per chunk
         self.silence_threshold = 0.005  # RMS threshold for silence (lower = less sensitive)
         self.silence_duration = 2.5  # seconds of silence to stop recording (longer = more patient)
-        self.max_recording_duration = 30  # max seconds to record
+        self.max_recording_duration = 90  # max seconds to record
+
+        # Load device from config if not specified
+        if input_device is None:
+            audio_config = _load_audio_config()
+            input_device = audio_config.get("microphone", {}).get("device_index")
+        self.input_device = input_device
 
         self.audio_queue = queue.Queue()
         self.is_listening = False
         self.is_recording = False
         self._stop_event = threading.Event()
         self._partial_command = None  # Text said after wake word in same chunk
+        self._on_wake_word = None  # Callback when wake word detected (for audio ducking)
 
-        print("[Listener] Initialized")
+        print(f"[Listener] Initialized (input device: {self.input_device})")
+
+    def set_wake_word_callback(self, callback: Callable[[], None]):
+        """Set a callback to be called when wake word is detected (before recording command)."""
+        self._on_wake_word = callback
 
     def _audio_callback(self, indata, frames, time_info, status):
         """Callback for sounddevice stream."""
@@ -139,8 +164,10 @@ class VoiceListener:
 
                             # Check for wake word
                             if "alfred" in text.lower():
-                                # Remove wake word from the text
-                                remaining = text.lower().replace("alfred", "").strip()
+                                # Only keep text AFTER the wake word (ignore ambient speech before it)
+                                lower_text = text.lower()
+                                alfred_pos = lower_text.rfind("alfred")  # Use last occurrence
+                                remaining = text[alfred_pos + len("alfred"):].strip()
                                 remaining = remaining.strip(",.!? ")
 
                                 if remaining:
@@ -148,6 +175,9 @@ class VoiceListener:
                                     self._partial_command = remaining
                                     print(f"[Listener] Wake word detected with partial: {remaining}")
 
+                                # Call wake word callback (e.g., to duck music)
+                                if self._on_wake_word:
+                                    self._on_wake_word()
                                 return True
 
                         chunks = []
@@ -162,11 +192,17 @@ class VoiceListener:
                             if text:
                                 print(f"[Listener] Heard: {text}")
                                 if "alfred" in text.lower():
-                                    remaining = text.lower().replace("alfred", "").strip()
+                                    # Only keep text AFTER the wake word
+                                    lower_text = text.lower()
+                                    alfred_pos = lower_text.rfind("alfred")
+                                    remaining = text[alfred_pos + len("alfred"):].strip()
                                     remaining = remaining.strip(",.!? ")
                                     if remaining:
                                         self._partial_command = remaining
                                         print(f"[Listener] Wake word detected with partial: {remaining}")
+                                    # Call wake word callback (e.g., to duck music)
+                                    if self._on_wake_word:
+                                        self._on_wake_word()
                                     return True
                     chunks = []
                     chunk_count = 0
@@ -193,8 +229,9 @@ class VoiceListener:
             except queue.Empty:
                 break
 
-        # Start audio stream
+        # Start audio stream from Yealink
         with sd.InputStream(
+            device=self.input_device,
             samplerate=self.sample_rate,
             channels=self.channels,
             dtype=np.float32,
@@ -255,6 +292,7 @@ class VoiceListener:
                 break
 
         with sd.InputStream(
+            device=self.input_device,
             samplerate=self.sample_rate,
             channels=self.channels,
             dtype=np.float32,
